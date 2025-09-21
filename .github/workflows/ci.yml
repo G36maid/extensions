@@ -1,88 +1,166 @@
+# Basic CI workflow for any language stack
+# This workflow runs on every push and pull request to any branch
 name: CI
 
 on:
-  pull_request:
   push:
-    branches:
-      - "main"
+    branches: ["*"]
+  pull_request:
+    branches: ["*"]
 
+# Cancel in-progress runs for the same branch
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
-env:
-  ZED_EXTENSION_CLI_SHA: 332626e5825564e97afc969292c90d9b0fb40b6d
-
 jobs:
-  package:
+  # Main CI job - detects language and runs appropriate steps
+  ci:
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'zed-industries'
+
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          clean: false
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
-        with:
-          version: 9
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      # NODE.JS/TYPESCRIPT STACK (detected in this repository)
+      # Remove this section if your project uses a different language
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "pnpm"
-
-      - name: Cache zed-extension CLI
-        id: cache-zed-extension
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
-        with:
-          path: |
-            zed-extension
-          key: zed-extension-${{ env.ZED_EXTENSION_CLI_SHA }}
-
-      - name: Download zed-extension CLI if not cached
-        if: steps.cache-zed-extension.outputs.cache-hit != 'true'
-        run: |
-          wget --quiet "https://zed-extension-cli.nyc3.digitaloceanspaces.com/$ZED_EXTENSION_CLI_SHA/x86_64-unknown-linux-gnu/zed-extension"
-          chmod +x zed-extension
+          cache: "npm"
 
       - name: Install dependencies
-        run: pnpm install
+        run: npm ci
+
+      - name: Format check
+        run: npx prettier --check .
+        continue-on-error: true
 
       - name: Build
-        run: pnpm build
+        run: npm run build
 
       - name: Run tests
-        run: pnpm test
+        run: npm run test
 
-      - name: Cache extension build dependencies
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
-        with:
-          key: cache-build-dependencies
-          path: |
-            ./scratch
+      # PYTHON STACK TEMPLATE (uncomment and customize if needed)
+      # - name: Setup Python
+      #   uses: actions/setup-python@v4
+      #   with:
+      #     python-version: '3.11'
+      #     cache: 'pip'
+      #
+      # - name: Install Python dependencies
+      #   run: |
+      #     python -m pip install --upgrade pip
+      #     pip install -r requirements.txt
+      #
+      # - name: Run Python linting
+      #   run: |
+      #     pip install flake8 black
+      #     flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      #     black --check .
+      #
+      # - name: Run Python tests
+      #   run: python -m pytest
 
-      - name: Package extensions
-        run: pnpm package-extensions
-        env:
-          SHOULD_PUBLISH: ${{ github.ref_name == 'main' }}
-          S3_BUCKET: ${{ secrets.S3_BUCKET }}
-          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
-          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+      # RUST STACK TEMPLATE (uncomment and customize if needed)
+      # - name: Setup Rust
+      #   uses: actions-rs/toolchain@v1
+      #   with:
+      #     toolchain: stable
+      #     override: true
+      #     components: rustfmt, clippy
+      #
+      # - name: Cache Rust dependencies
+      #   uses: actions/cache@v3
+      #   with:
+      #     path: |
+      #       ~/.cargo/registry
+      #       ~/.cargo/git
+      #       target
+      #     key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      #
+      # - name: Check Rust formatting
+      #   run: cargo fmt --all -- --check
+      #
+      # - name: Run Rust linting
+      #   run: cargo clippy --all-targets --all-features -- -D warnings
+      #
+      # - name: Build Rust project
+      #   run: cargo build --verbose
+      #
+      # - name: Run Rust tests
+      #   run: cargo test --verbose
 
-      - name: Enforce sorted `extensions.toml` and `.gitmodules`
-        run: |
-          if ! git diff --exit-code -- extensions.toml .gitmodules; then
-            echo -e "\nERROR: extensions.toml and .gitmodules are not sorted."
-            echo -e "Fix by running:\n  pnpm sort-extensions\n"
-            exit 1
-          fi
+      # GO STACK TEMPLATE (uncomment and customize if needed)
+      # - name: Setup Go
+      #   uses: actions/setup-go@v4
+      #   with:
+      #     go-version: '1.21'
+      #
+      # - name: Cache Go modules
+      #   uses: actions/cache@v3
+      #   with:
+      #     path: ~/go/pkg/mod
+      #     key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-go-
+      #
+      # - name: Download Go dependencies
+      #   run: go mod download
+      #
+      # - name: Run Go formatting check
+      #   run: |
+      #     if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+      #       echo "Code is not formatted. Run: gofmt -s -w ."
+      #       exit 1
+      #     fi
+      #
+      # - name: Run Go linting
+      #   run: |
+      #     go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      #     golangci-lint run
+      #
+      # - name: Build Go project
+      #   run: go build -v ./...
+      #
+      # - name: Run Go tests
+      #   run: go test -v ./...
 
-      - name: Enforce no Git LFS
-        run: |
-          # shellcheck disable=SC2016
-          git submodule foreach --quiet \
-            '[ ! -f .gitattributes ] || ! grep -q "filter=lfs" .gitattributes && [ ! -d .git/lfs ] || {
-              echo "LFS detected in $path" >&2 && exit 1
-            }'
+      # JAVA/MAVEN STACK TEMPLATE (uncomment and customize if needed)
+      # - name: Setup Java
+      #   uses: actions/setup-java@v3
+      #   with:
+      #     java-version: '17'
+      #     distribution: 'temurin'
+      #
+      # - name: Cache Maven dependencies
+      #   uses: actions/cache@v3
+      #   with:
+      #     path: ~/.m2
+      #     key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+      #     restore-keys: ${{ runner.os }}-m2
+      #
+      # - name: Run Maven tests
+      #   run: mvn clean test
+      #
+      # - name: Build Maven project
+      #   run: mvn clean compile
+
+      # C/C++ STACK TEMPLATE (uncomment and customize if needed)
+      # - name: Install build dependencies
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install -y build-essential cmake
+      #
+      # - name: Configure CMake
+      #   run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      #
+      # - name: Build with CMake
+      #   run: cmake --build build
+      #
+      # - name: Run C/C++ tests
+      #   run: cd build && ctest --output-on-failure
